@@ -5,6 +5,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -24,6 +27,21 @@ jobs:
 
       - name: Build debug APK
         run: ./gradlew --no-daemon assembleDebug
+
+      - name: Name the APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk StudyTimelapse-debug.apk
+
+      # A stable direct-download link that works well from a phone browser:
+      # https://github.com/<owner>/<repo>/releases/download/latest-debug/StudyTimelapse-debug.apk
+      - name: Publish phone-friendly download
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest-debug
+          name: Latest debug build
+          prerelease: true
+          body: "Debug APK built from ${{ github.sha }}. Open this page on your phone and tap StudyTimelapse-debug.apk to install."
+          files: StudyTimelapse-debug.apk
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
