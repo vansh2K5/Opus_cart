@@ -27,9 +27,10 @@ friend on a fair weekly leaderboard. Videos never leave the phone unless you sha
   Material 3, navigation and lifecycle APIs plus `android.jar`. AndroidX/Firebase libraries that
   are only published on Google's Maven server (CameraX, Room, WorkManager, Media3, DataStore,
   core, Firebase) were checked against hand-written signature stubs.
-* Not yet done: a real Gradle/AGP build (Room's KSP code generation, resources/aapt2, R8) and
-  running on a phone. CI (`.github/workflows/android.yml`) or Android Studio does the former. For
-  the camera and power behaviour, work through [TESTING_CHECKLIST.md](docs/TESTING_CHECKLIST.md).
+* **CI builds the real app**: the full Gradle/AGP build (Room KSP, resources, Kotlin) and the unit
+  tests pass on GitHub Actions, which publishes a debug APK artifact on every push.
+* Still needed: running it on a real phone. For the camera and power behaviour, work through
+  [TESTING_CHECKLIST.md](docs/TESTING_CHECKLIST.md).
 
 ## Quick start
 
