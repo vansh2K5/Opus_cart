@@ -18,6 +18,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -121,6 +122,7 @@ private val DarkColors = darkColorScheme(
     error = Color(0xFFF2B8B5),
 )
 
+@OptIn(ExperimentalTextApi::class)
 private fun inter(weight: Int) = Font(
     R.font.inter_variable,
     weight = FontWeight(weight),
