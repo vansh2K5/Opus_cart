@@ -1,0 +1,27 @@
+# Gradle / Android Studio
+.gradle/
+build/
+/local.properties
+/.idea/
+*.iml
+.DS_Store
+/captures
+.externalNativeBuild/
+.cxx/
+.kotlin/
+
+# Secrets — NEVER commit these
+app/google-services.json
+google-services.json
+keystore.properties
+*.jks
+*.keystore
+*.p12
+.env
+.env.*
+secrets.properties
+
+# Firebase CLI
+.firebase/
+firebase-debug.log
+firestore-debug.log
