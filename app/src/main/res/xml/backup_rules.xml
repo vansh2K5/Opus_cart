@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 10/11 backup rules: never back up camera footage. -->
+<full-backup-content>
+    <exclude domain="file" path="timelapses/" />
+</full-backup-content>

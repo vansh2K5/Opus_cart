@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A clock face that doubles as a camera aperture ring, with a warm "recording" dot.
+     Everything sits inside the 66dp adaptive-icon safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path
+        android:strokeColor="@color/icon_lamp" android:strokeWidth="5"
+        android:pathData="M54,32 A22,22 0 1,1 53.99,32 Z" />
+    <path
+        android:strokeColor="#F3E6D4" android:strokeWidth="4.5" android:strokeLineCap="round"
+        android:pathData="M54,54 L54,41 M54,54 L63,59" />
+    <path android:fillColor="#F3E6D4" android:pathData="M54,54 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0" />
+    <path android:fillColor="@color/notification_accent" android:pathData="M71,36 m-5,0 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0" />
+</vector>

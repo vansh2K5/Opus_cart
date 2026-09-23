@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="window_background">#FAF8F4</color>
+    <color name="icon_background">#2A2320</color>
+    <color name="icon_lamp">#E8A15C</color>
+    <color name="notification_accent">#B64400</color>
+</resources>

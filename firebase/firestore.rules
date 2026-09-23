@@ -1,0 +1,124 @@
+rules_version = '2';
+
+// StudyTimelapse — Firestore security rules.
+//
+// Principles:
+//  * Least privilege: every read/write is denied unless a rule below allows it.
+//  * A user can read another user's profile/sessions ONLY if they are accepted friends.
+//  * No one can list users or query arbitrary people's sessions.
+//  * Study sessions are validated server-side so the leaderboard can't be inflated with
+//    impossible numbers (more study time than wall-clock time, future sessions, >24h, ...).
+//  * Camera footage never reaches the server; there is no rule that would accept it.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isSelf(uid) { return signedIn() && request.auth.uid == uid; }
+    function pairId(a, b) { return a < b ? a + '_' + b : b + '_' + a; }
+    function friendshipPath(a, b) {
+      return /databases/$(database)/documents/friendships/$(pairId(a, b));
+    }
+    function isFriend(uid) {
+      return signedIn()
+        && exists(friendshipPath(request.auth.uid, uid))
+        && get(friendshipPath(request.auth.uid, uid)).data.status == 'accepted';
+    }
+
+    // ------------------------------------------------------------------ profiles
+    match /users/{uid} {
+      allow get: if isSelf(uid) || isFriend(uid);
+      allow list: if false;
+      allow create, update: if isSelf(uid)
+        && request.resource.data.keys().hasOnly(
+             ['username', 'avatar', 'zone', 'weeklyGoalMinutes', 'achievements', 'updatedAt', 'live'])
+        && (!('username' in request.resource.data) || (request.resource.data.username is string && request.resource.data.username.size() <= 30))
+        && (!('avatar' in request.resource.data) || (request.resource.data.avatar is string && request.resource.data.avatar.size() <= 8));
+      allow delete: if isSelf(uid);
+
+      // ---------------------------------------------------------------- sessions
+      match /sessions/{sessionId} {
+        allow read: if isSelf(uid) || isFriend(uid);
+        allow create: if isSelf(uid) && validSession(request.resource.data);
+        // Timing is immutable once uploaded; only the subject label may change.
+        allow update: if isSelf(uid) && validSession(request.resource.data)
+          && request.resource.data.startUtc == resource.data.startUtc
+          && request.resource.data.endUtc == resource.data.endUtc
+          && request.resource.data.studyMs == resource.data.studyMs;
+        allow delete: if isSelf(uid);
+      }
+    }
+
+    function validSession(s) {
+      return s.keys().hasOnly(['startUtc', 'endUtc', 'studyMs', 'pausedMs', 'subject', 'targetMs', 'zone', 'uploadedAt'])
+        && s.keys().hasAll(['startUtc', 'endUtc', 'studyMs', 'subject', 'uploadedAt'])
+        && s.startUtc is int && s.endUtc is int && s.studyMs is int
+        && s.endUtc > s.startUtc
+        && s.endUtc - s.startUtc <= 86400000                      // max 24 h per session
+        && s.studyMs >= 0
+        && s.studyMs <= s.endUtc - s.startUtc                     // can't study longer than the session lasted
+        && s.endUtc <= request.time.toMillis() + 600000           // no sessions in the future (10 min clock skew)
+        && s.startUtc >= request.time.toMillis() - 5184000000     // no back-dating beyond 60 days (offline sync window)
+        && s.uploadedAt == request.time                           // server timestamp, not client clock
+        && s.subject is string && s.subject.size() <= 60
+        && (!('pausedMs' in s) || (s.pausedMs is int && s.pausedMs >= 0))
+        && (!('targetMs' in s) || s.targetMs is int)
+        && (!('zone' in s) || (s.zone is string && s.zone.size() <= 64));
+    }
+
+    // ------------------------------------------------------------------ invite codes
+    match /inviteCodes/{code} {
+      // Anyone signed in may look up a specific code (to redeem it) but not enumerate codes.
+      allow get: if signedIn();
+      allow list: if signedIn() && resource.data.ownerUid == request.auth.uid;
+      allow create: if signedIn()
+        && code.matches('^[A-HJ-NP-Z2-9]{6}$')
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['ownerUid', 'createdAt', 'expiresAt'])
+        && request.resource.data.expiresAt is int
+        && request.resource.data.expiresAt <= request.time.toMillis() + 8 * 86400000;
+      allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
+    // ------------------------------------------------------------------ friendships
+    match /friendships/{id} {
+      allow read: if signedIn() && request.auth.uid in resource.data.users;
+
+      // The person redeeming a code creates a *pending* request to the code's owner.
+      allow create: if signedIn()
+        && request.resource.data.requester == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && id == pairId(request.auth.uid, request.resource.data.receiver)
+        && request.resource.data.users.hasAll([request.auth.uid, request.resource.data.receiver])
+        && request.resource.data.users.size() == 2
+        && request.resource.data.receiver != request.auth.uid
+        && get(/databases/$(database)/documents/inviteCodes/$(request.resource.data.code)).data.ownerUid == request.resource.data.receiver
+        && get(/databases/$(database)/documents/inviteCodes/$(request.resource.data.code)).data.expiresAt > request.time.toMillis();
+
+      // Only the receiver can accept, and accepting changes nothing but the status.
+      allow update: if signedIn()
+        && resource.data.receiver == request.auth.uid
+        && resource.data.status == 'pending'
+        && request.resource.data.status == 'accepted'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'acceptedAt']);
+
+      // Either person can end the friendship (or cancel/decline a request).
+      allow delete: if signedIn() && request.auth.uid in resource.data.users;
+    }
+
+    // ------------------------------------------------------------------ challenges
+    match /challenges/{id} {
+      allow read: if signedIn() && request.auth.uid in resource.data.users;
+      allow create: if signedIn()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.auth.uid in request.resource.data.users
+        && request.resource.data.users.size() == 2
+        && isFriend(request.resource.data.users[0] == request.auth.uid
+                      ? request.resource.data.users[1]
+                      : request.resource.data.users[0])
+        && request.resource.data.type in ['WEEKLY_HOURS', 'LONGEST_SESSION', 'CONSISTENCY_7']
+        && request.resource.data.targetMinutes is int
+        && request.resource.data.targetMinutes >= 0 && request.resource.data.targetMinutes <= 10080;
+      allow delete: if signedIn() && request.auth.uid in resource.data.users;
+    }
+  }
+}

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">StudyTimelapse</string>
+    <string name="channel_session">Active study session</string>
+    <string name="channel_session_desc">Shows while a study session and its timelapse are running.</string>
+    <string name="channel_alerts">Recording alerts</string>
+    <string name="channel_alerts_desc">Important problems with an active recording (camera stopped, phone too hot, storage full).</string>
+    <string name="channel_progress">Goals and streaks</string>
+    <string name="channel_progress_desc">Goal completed, streak milestones and achievements.</string>
+    <string name="channel_reminders">Study reminders</string>
+    <string name="channel_reminders_desc">Your optional scheduled reminders.</string>
+    <string name="channel_processing">Timelapse processing</string>
+    <string name="channel_processing_desc">Shown while your timelapse video is being finished.</string>
+</resources>
