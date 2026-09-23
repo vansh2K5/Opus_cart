@@ -74,6 +74,7 @@ class TimelapseEncoder(
         val caps = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
             .first { it.name == codecName }
             .getCapabilitiesForType(MIME).videoCapabilities
+            ?: throw EncoderException("The H.264 encoder reports no video capabilities")
         val (w, h) = chooseSize(caps, sourceWidth, sourceHeight)
         width = w
         height = h

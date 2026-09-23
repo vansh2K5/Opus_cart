@@ -19,11 +19,17 @@ friend on a fair weekly leaderboard. Videos never leave the phone unless you sha
 | Dark mode, accessibility, reduced motion, share card, CSV/JSON export, storage manager, reminders, delete account/data | ✅ |
 | Automated tests | ✅ 28 JVM unit tests (streaks, midnight, time zones, pause/resume, goals, leaderboard fairness, challenges, achievements) + Room instrumented tests |
 
-**How this was verified so far:** the pure-Kotlin domain layer is compiled and its unit tests pass.
-The low-level video encoder and segment joiner are compiled against the real Android 36 SDK
-(`android.jar`). The full app build (Compose/CameraX/Room) runs in CI
-(`.github/workflows/android.yml`) and in Android Studio. The camera and power behaviour **must**
-be checked on a real phone with [TESTING_CHECKLIST.md](docs/TESTING_CHECKLIST.md).
+**How this was verified so far:**
+
+* The pure-Kotlin domain layer compiles and its **28 unit tests pass**.
+* The video encoder and segment joiner compile against the real Android 36 SDK (`android.jar`).
+* The **whole app** (every source file) type-checks against the real Compose 1.8 UI, foundation,
+  Material 3, navigation and lifecycle APIs plus `android.jar`. AndroidX/Firebase libraries that
+  are only published on Google's Maven server (CameraX, Room, WorkManager, Media3, DataStore,
+  core, Firebase) were checked against hand-written signature stubs.
+* Not yet done: a real Gradle/AGP build (Room's KSP code generation, resources/aapt2, R8) and
+  running on a phone. CI (`.github/workflows/android.yml`) or Android Studio does the former. For
+  the camera and power behaviour, work through [TESTING_CHECKLIST.md](docs/TESTING_CHECKLIST.md).
 
 ## Quick start
 

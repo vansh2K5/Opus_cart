@@ -28,6 +28,7 @@ import com.studytimelapse.app.timelapse.TimelapseEncoder
 import com.studytimelapse.app.util.Storage
 import com.studytimelapse.app.worker.SyncWorker
 import com.studytimelapse.app.worker.TimelapseProcessingWorker
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -89,6 +90,8 @@ class SessionManager(
     private val publishLive: suspend (subject: String?, startedAtUtc: Long?, targetMinutes: Int?) -> Unit,
 ) {
     private val mutex = Mutex()
+    /** Completed once [restore] has run, so early commands (e.g. a notification tap) never race it. */
+    private val restored = CompletableDeferred<Unit>()
     private var clock: SessionClock? = null
     private var entity: SessionEntity? = null
     private var host: CameraHost? = null
@@ -118,50 +121,58 @@ class SessionManager(
     /** Called once at app start: rebuilds a session that was active when the process died. */
     fun restore() {
         scope.launch {
-            mutex.withLock {
-                if (clock != null) return@withLock
-                val e = db.sessions().unfinished() ?: return@withLock
-                val spans = db.spans().forSession(e.id).map { StudySpan(it.startUtc, it.endUtc) }
-                val sinceUtc = e.runningSinceUtc
-                val sinceElapsed = e.runningSinceElapsed
-                val rebooted = e.bootCount != bootCount() || (sinceElapsed != null && sinceElapsed > elapsed())
-                val c = SessionClock(elapsed, wall)
-                var interrupted = e.status == SessionStatus.INTERRUPTED
-                if (sinceUtc != null && sinceElapsed != null && !rebooted) {
-                    // Same boot: the monotonic clock is still valid, continue like a stopwatch.
-                    c.restore(e.startUtc, spans, e.pauseCount, sinceUtc, sinceElapsed)
-                } else if (sinceUtc != null) {
-                    // After a reboot we only know the user studied until the last checkpoint.
-                    val upTo = maxOf(sinceUtc, e.lastCheckpointUtc)
-                    c.restore(e.startUtc, spans + StudySpan(sinceUtc, upTo), e.pauseCount + 1)
-                    interrupted = true
-                } else {
-                    c.restore(e.startUtc, spans, e.pauseCount)
-                }
-                clock = c
-                frames.set(e.frameCount)
-                framesScreenOff.set(e.framesScreenOff)
-                val hasTimelapse = e.captureIntervalSec != null
-                gaps.set(e.captureGaps)
-                // The camera died with the process while the timer kept going: that is a gap.
-                if (hasTimelapse && c.state == SessionClock.State.RUNNING) gaps.incrementAndGet()
-                entity = e.copy(status = if (interrupted) SessionStatus.INTERRUPTED else SessionStatus.ACTIVE)
-                val s = settings.current()
-                captureConfig = if (hasTimelapse) configFor(e.id, e.captureIntervalSec!!, s.effectiveResolution, s.bitrate(), s.cameraFacing.name == "BACK", e.rotationDegrees.toSurfaceRotation(), isTest = false) else null
-                publish(
-                    camera = if (hasTimelapse) CameraStatus.NOT_RUNNING else CameraStatus.OFF,
-                    cameraMessage = if (hasTimelapse) "The app was closed by Android, so the camera stopped. Tap to restart recording." else null,
-                    interrupted = interrupted,
-                    screenMode = s.screenMode,
-                )
-                persistLocked()
-                startCheckpoints()
-                refreshNotification()
+            try {
+                restoreLocked()
+            } finally {
+                restored.complete(Unit)
             }
         }
     }
 
-    suspend fun start(req: StartRequest): String = mutex.withLock {
+    private suspend fun restoreLocked() {
+        mutex.withLock {
+            if (clock != null) return@withLock
+            val e = db.sessions().unfinished() ?: return@withLock
+            val spans = db.spans().forSession(e.id).map { StudySpan(it.startUtc, it.endUtc) }
+            val sinceUtc = e.runningSinceUtc
+            val sinceElapsed = e.runningSinceElapsed
+            val rebooted = e.bootCount != bootCount() || (sinceElapsed != null && sinceElapsed > elapsed())
+            val c = SessionClock(elapsed, wall)
+            var interrupted = e.status == SessionStatus.INTERRUPTED
+            if (sinceUtc != null && sinceElapsed != null && !rebooted) {
+                // Same boot: the monotonic clock is still valid, continue like a stopwatch.
+                c.restore(e.startUtc, spans, e.pauseCount, sinceUtc, sinceElapsed)
+            } else if (sinceUtc != null) {
+                // After a reboot we only know the user studied until the last checkpoint.
+                val upTo = maxOf(sinceUtc, e.lastCheckpointUtc)
+                c.restore(e.startUtc, spans + StudySpan(sinceUtc, upTo), e.pauseCount + 1)
+                interrupted = true
+            } else {
+                c.restore(e.startUtc, spans, e.pauseCount)
+            }
+            clock = c
+            frames.set(e.frameCount)
+            framesScreenOff.set(e.framesScreenOff)
+            val hasTimelapse = e.captureIntervalSec != null
+            gaps.set(e.captureGaps)
+            // The camera died with the process while the timer kept going: that is a gap.
+            if (hasTimelapse && c.state == SessionClock.State.RUNNING) gaps.incrementAndGet()
+            entity = e.copy(status = if (interrupted) SessionStatus.INTERRUPTED else SessionStatus.ACTIVE)
+            val s = settings.current()
+            captureConfig = if (hasTimelapse) configFor(e.id, e.captureIntervalSec!!, s.effectiveResolution, s.bitrate(), s.cameraFacing.name == "BACK", e.rotationDegrees.toSurfaceRotation(), isTest = false) else null
+            publish(
+                camera = if (hasTimelapse) CameraStatus.NOT_RUNNING else CameraStatus.OFF,
+                cameraMessage = if (hasTimelapse) "The app was closed by Android, so the camera stopped. Tap to restart recording." else null,
+                interrupted = interrupted,
+                screenMode = s.screenMode,
+            )
+            persistLocked()
+            startCheckpoints()
+            refreshNotification()
+        }
+    }
+
+    suspend fun start(req: StartRequest): String = ready().withLock {
         check(clock == null) { "A session is already active" }
         val id = UUID.randomUUID().toString()
         val c = SessionClock(elapsed, wall).also { it.start() }
@@ -199,7 +210,7 @@ class SessionManager(
         id
     }
 
-    suspend fun pause() = mutex.withLock {
+    suspend fun pause() = ready().withLock {
         val c = clock ?: return@withLock
         c.pause()
         host?.pauseCapture()
@@ -208,7 +219,7 @@ class SessionManager(
         refreshNotification()
     }
 
-    suspend fun resume() = mutex.withLock {
+    suspend fun resume() = ready().withLock {
         val c = clock ?: return@withLock
         c.resume()
         entity = entity?.copy(status = SessionStatus.ACTIVE, bootCount = bootCount())
@@ -231,7 +242,7 @@ class SessionManager(
     }
 
     /** Restarts the camera for a running session whose camera died (e.g. after process death). */
-    suspend fun restartCamera() = mutex.withLock {
+    suspend fun restartCamera() = ready().withLock {
         val cfg = captureConfig ?: return@withLock
         if (clock?.state != SessionClock.State.RUNNING) return@withLock
         val h = host
@@ -249,7 +260,7 @@ class SessionManager(
      * Finishes the session. Study time is saved immediately; the video is finalised in the
      * background and the UI observes [SessionEntity.timelapseStatus].
      */
-    suspend fun finish(): String? = mutex.withLock {
+    suspend fun finish(): String? = ready().withLock {
         val c = clock ?: return@withLock null
         val e = entity ?: return@withLock null
         val spans = c.finish()
@@ -289,7 +300,7 @@ class SessionManager(
     }
 
     /** Throws away the active session entirely (e.g. started by accident). */
-    suspend fun discard() = mutex.withLock {
+    suspend fun discard() = ready().withLock {
         val e = entity ?: return@withLock
         host?.abortCapture()
         clearLocked()
@@ -297,6 +308,11 @@ class SessionManager(
         db.sessions().delete(e.id)
         Storage.sessionDir(context, e.id).deleteRecursively()
         scope.launch { runCatching { publishLive(null, null, null) } }
+    }
+
+    private suspend fun ready(): Mutex {
+        restored.await()
+        return mutex
     }
 
     private fun clearLocked() {

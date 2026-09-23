@@ -103,6 +103,12 @@ class StudySessionService : LifecycleService(), CameraHost {
             return
         }
         if (!goForeground(cfg)) return
+        // The session may have been finished or discarded while this start request was queued.
+        val live = manager.live.value
+        if (!cfg.isTest && live?.sessionId != cfg.sessionId) {
+            if (pipeline == null) stopEverything()
+            return
+        }
         val existing = pipeline
         if (existing != null) {
             if (config?.sessionId == cfg.sessionId) {
@@ -113,12 +119,13 @@ class StudySessionService : LifecycleService(), CameraHost {
             existing.abort()
         }
         config = cfg
-        userPaused = false
+        // Paused before the service came up? Then don't open the camera yet.
+        userPaused = !cfg.isTest && live?.running == false
         thermalPaused = false
         storageStopped = false
         finishing = false
         val outputDir = if (cfg.isTest) Storage.testDir(this) else Storage.sessionDir(this, cfg.sessionId)
-        pipeline = CapturePipeline(this, this, cfg, outputDir, pipelineListener).also { it.start() }
+        pipeline = CapturePipeline(this, this, cfg, outputDir, pipelineListener).also { it.start(openCamera = !userPaused) }
         manager.attachHost(this)
         acquireWakeLock()
         registerMonitors()

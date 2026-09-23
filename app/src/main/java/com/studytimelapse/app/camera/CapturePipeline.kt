@@ -83,12 +83,12 @@ class CapturePipeline(
     val isCapturing: Boolean get() = capturing
     val currentIntervalSec: Int get() = (intervalMs / 1000).toInt()
 
-    fun start() {
+    fun start(openCamera: Boolean = true) {
         val future = ProcessCameraProvider.getInstance(context)
         future.addListener({
             try {
                 provider = future.get()
-                startCamera()
+                if (openCamera) startCamera()
             } catch (e: Exception) {
                 Log.e(TAG, "Camera provider unavailable", e)
                 reportFatal("The camera could not be opened on this device.")
